@@ -22,17 +22,35 @@ small_font = pygame.font.Font("Jersey10-Regular.ttf", 40)
 white = (255, 255, 255)
 orange = (255, 102, 0)
 
+# Define theme colors
+themes = [
+    {"name": "Default", "bg": "img/bg.png", "ground": "img/ground.png", "pipe": "img/pipe.png", "sky": (135, 206, 235)},
+    {"name": "Night", "bg": "img/bg.png", "ground": "img/ground.png", "pipe": "img/pipe.png", "sky": (25, 25, 112)},
+    {"name": "Desert", "bg": "img/bg.png", "ground": "img/ground.png", "pipe": "img/pipe.png", "sky": (244, 164, 96)},
+    {"name": "Forest", "bg": "img/bg.png", "ground": "img/ground.png", "pipe": "img/pipe.png", "sky": (34, 139, 34)}
+]
+current_theme = 0
+
+# Define bird types
+bird_types = ["bird", "bat", "butterfly", "rocket"]
+current_bird_type = 0
+
 #define game variables
 ground_scroll = 0
-scroll_speed = 4
+scroll_speed = 4  # Starting speed
 flying = False
 game_over = False
-pipe_gap = 150
+pipe_gap = 180  # Starting with easier gap
 pipe_frequency = 1500  # milliseconds
 last_pipe = pygame.time.get_ticks() - pipe_frequency
 score = 0
 pass_pipe = False
 game_started = False  # New variable to track if game has started
+
+# Progressive difficulty variables
+difficulty_increase_interval = 5  # Increase difficulty every 5 points
+max_scroll_speed = 7
+min_pipe_gap = 120
 
 # Load high score from file if it exists
 def load_high_score():
@@ -57,14 +75,14 @@ bg = pygame.image.load('img/bg.png')
 ground_img = pygame.image.load('img/ground.png')
 button_img = pygame.image.load('img/restart.png')
 mainmenu_img = pygame.image.load('img/mainmenu.png')
-start_img = pygame.image.load('img/start.png') if os.path.exists('img/start.png') else button_img  # Use restart as fallback
+start_img = pygame.image.load('img/start.png') if os.path.exists('img/start.png') else button_img 
 
 # Resize the start button to make it smaller (60% of original size)
-start_img = pygame.transform.scale(start_img, (int(start_img.get_width() * 0.6), int(start_img.get_height() * 0.6)))
+start_img = pygame.transform.scale(start_img, (int(start_img.get_width() * 0.7), int(start_img.get_height() * 0.5)))
 
 # Force create a visible main menu button
 mainmenu_img = pygame.Surface((button_img.get_width(), button_img.get_height()))
-mainmenu_img.fill((50, 200, 50))  # Green color
+mainmenu_img.fill((230, 97, 29))  # Green color
 # Add a white border
 pygame.draw.rect(mainmenu_img, (255, 255, 255), (0, 0, mainmenu_img.get_width(), mainmenu_img.get_height()), 3)
 # Add text
@@ -73,63 +91,25 @@ menu_text = font_menu.render('MENU', True, (255, 255, 255))
 text_rect = menu_text.get_rect(center=(mainmenu_img.get_width()//2, mainmenu_img.get_height()//2))
 mainmenu_img.blit(menu_text, text_rect)
 
-# Then modify the draw_game_over function:
-def draw_game_over():
-    global high_score, score, game_over
-    
-   
-    if score > high_score:
-        high_score = score
-        save_high_score(high_score)  
-
-   
-    frame_rect = pygame.Rect(232, 268, 400, 300)
-    pygame.draw.rect(screen, orange, frame_rect)
-    pygame.draw.rect(screen, white, frame_rect, 10) 
-
-   
-    screen.blit(trophy_img, (240, 280))  
-    
-    # Display high score and score
-    draw_text(f": {high_score}", font, white, 320, 290)
-    draw_text(f"SCORE: {score}", font, white, 260, 350)
-
-    # Bird image in the right side of the game-over frame
-    bird_img = flappy.images[0]
-    screen.blit(bird_img, (520, 290))
-
-    # Create and position buttons
-    restart_button_x = 280
-    mainmenu_button_x = 420
-    buttons_y = 450
-    
-    # Draw the restart button
-    restart_button = Button(restart_button_x, buttons_y, button_img)
-    
-    # Draw the main menu button (force draw the image)
-    screen.blit(mainmenu_img, (mainmenu_button_x, buttons_y))
-    
-    # Handle restart button click
-    if restart_button.draw():
-        game_over = False
-        reset_game()
-    
-    # Handle main menu button click manually
-    pos = pygame.mouse.get_pos()
-    menu_rect = pygame.Rect(mainmenu_button_x, buttons_y, mainmenu_img.get_width(), mainmenu_img.get_height())
-    if menu_rect.collidepoint(pos):
-        if pygame.mouse.get_pressed()[0] == 1:
-            go_to_main_menu()
-
 try:
+    # Load the trophy image
     trophy_img = pygame.image.load('img/trophy.png')
+    text_height = 43
+
+    trophy_width = trophy_img.get_width()
+    trophy_height = trophy_img.get_height()
+    new_height = text_height
+    new_width = int((trophy_width / trophy_height) * new_height)
+    
+    # Resize the trophy image
+    trophy_img = pygame.transform.scale(trophy_img, (new_width, new_height))
 except:
-    # Create a simple trophy if image is missing
-    trophy_surface = pygame.Surface((32, 32))
+    # Create a simple trophy if image is missing (now smaller)
+    trophy_surface = pygame.Surface((20, 20))  # Smaller size
     trophy_surface.fill((255, 215, 0))  # Gold color
-    pygame.draw.polygon(trophy_surface, (255, 255, 255), [(10, 5), (22, 5), (25, 15), (7, 15)])
-    pygame.draw.rect(trophy_surface, (255, 255, 255), (14, 15, 4, 12))
-    pygame.draw.rect(trophy_surface, (255, 255, 255), (10, 27, 12, 3))
+    pygame.draw.polygon(trophy_surface, (255, 255, 255), [(6, 3), (14, 3), (16, 9), (4, 9)])
+    pygame.draw.rect(trophy_surface, (255, 255, 255), (9, 9, 2, 8))
+    pygame.draw.rect(trophy_surface, (255, 255, 255), (6, 17, 8, 2))
     trophy_img = trophy_surface
 
 # Function for outputting text onto the screen
@@ -138,13 +118,16 @@ def draw_text(text, font, text_col, x, y):
     screen.blit(img, (x, y))
 
 def reset_game():
-    global score, flying, game_over
+    global score, flying, game_over, scroll_speed, pipe_gap
     pipe_group.empty()
     flappy.rect.x = 100
     flappy.rect.y = int(screen_height / 2)
     flying = False
     game_over = False
     score = 0
+    # Reset to starting difficulty
+    scroll_speed = 4
+    pipe_gap = 180
     return score
 
 def go_to_main_menu():
@@ -152,6 +135,41 @@ def go_to_main_menu():
     game_started = False
     game_over = False
     reset_game()
+
+def update_difficulty():
+    global score, scroll_speed, pipe_gap
+    # Calculate difficulty level based on score
+    difficulty_level = score // difficulty_increase_interval
+    
+    # Update scroll speed (game speed)
+    new_scroll_speed = min(4 + (difficulty_level * 0.5), max_scroll_speed)
+    scroll_speed = new_scroll_speed
+    
+    # Update pipe gap (smaller gap = harder)
+    new_pipe_gap = max(180 - (difficulty_level * 10), min_pipe_gap)
+    pipe_gap = int(new_pipe_gap)
+
+def change_bird_type():
+    global current_bird_type
+    current_bird_type = (current_bird_type + 1) % len(bird_types)
+    # Update the bird images
+    flappy.load_images(bird_types[current_bird_type])
+
+def change_theme():
+    global current_theme, bg
+    current_theme = (current_theme + 1) % len(themes)
+    theme = themes[current_theme]
+    
+    # Apply theme changes
+    # In a real implementation, you'd load actual themed images
+    # For this implementation, we'll just change the sky color
+    bg = colorize_surface(bg, theme["sky"])
+
+def colorize_surface(surface, color):
+    """Apply a color tint to a surface"""
+    colored_surface = surface.copy()
+    colored_surface.fill(color, special_flags=pygame.BLEND_RGBA_MULT)
+    return colored_surface
 
 class Pipe(pygame.sprite.Sprite):
     def __init__(self, x, y, position):
@@ -172,7 +190,7 @@ class Pipe(pygame.sprite.Sprite):
 class Bird(pygame.sprite.Sprite):
     def __init__(self, x, y):
         pygame.sprite.Sprite.__init__(self)
-        self.images = [pygame.image.load(f"img/bird{num}.png") for num in range(1, 4)]
+        self.load_images(bird_types[current_bird_type])
         self.index = 0
         self.counter = 0
         self.image = self.images[self.index]
@@ -180,6 +198,28 @@ class Bird(pygame.sprite.Sprite):
         self.rect.center = [x, y]
         self.vel = 0
         self.clicked = False
+    
+    def load_images(self, bird_type):
+        if bird_type == "bird":
+            self.images = [pygame.image.load(f"img/bird{num}.png") for num in range(1, 4)]
+        elif bird_type == "bat":
+            # Assuming you have bat images, otherwise use bird images with a color filter
+            try:
+                self.images = [pygame.image.load(f"img/bat{num}.png") for num in range(1, 4)]
+            except:
+                self.images = [colorize_surface(pygame.image.load(f"img/bird{num}.png"), (100, 100, 100)) for num in range(1, 4)]
+        elif bird_type == "butterfly":
+            # Assuming you have butterfly images, otherwise use bird images with a color filter
+            try:
+                self.images = [pygame.image.load(f"img/butterfly{num}.png") for num in range(1, 4)]
+            except:
+                self.images = [colorize_surface(pygame.image.load(f"img/bird{num}.png"), (200, 100, 200)) for num in range(1, 4)]
+        elif bird_type == "rocket":
+            # Assuming you have rocket images, otherwise use bird images with a color filter
+            try:
+                self.images = [pygame.image.load(f"img/rocket{num}.png") for num in range(1, 4)]
+            except:
+                self.images = [colorize_surface(pygame.image.load(f"img/bird{num}.png"), (200, 50, 50)) for num in range(1, 4)]
     
     def update(self):
         global flying, game_over
@@ -240,8 +280,8 @@ def draw_game_over():
     pygame.draw.rect(screen, orange, frame_rect)
     pygame.draw.rect(screen, white, frame_rect, 10)
 
-    # Trophy at the upper left of the game-over frame
-    screen.blit(trophy_img, (240, 280))  
+    #TROPHY AT GAME OVER FRAME
+    screen.blit(trophy_img, (270, 300))  
     
     # Display high score and score
     draw_text(f": {high_score}", font, white, 320, 290)
@@ -284,24 +324,80 @@ def draw_main_menu():
     # Draw title
     draw_text("   SNAPPY BIRD", font, white, 270, 280)
     
-    # Draw high score
+    # Draw high score with trophy image
     screen.blit(trophy_img, (280, 350))
     draw_text(f": {high_score}", small_font, white, 330, 355)
     
     # Draw bird image
     screen.blit(flappy.images[0], (500, 350))
     
-    # Create start button and center it
-    start_button = Button(0, 0, start_img)
-    # Center the button in the frame - horizontally and vertically
-    frame_center_x = frame_rect.x + frame_rect.width // 2
-    frame_center_y = 500  # Position it a bit lower in the frame for better spacing
-    start_button.set_center(frame_center_x, frame_center_y)
+    # Make start button even smaller (40% of original size instead of 60%)
+    smaller_start_img = pygame.transform.scale(start_img, 
+                                              (int(start_img.get_width() * 0.4), 
+                                               int(start_img.get_height() * 0.4)))
     
-    if start_button.draw():
+    # Create "Change Bird" button (replaces "EASY")
+    bird_button_img = pygame.Surface((140, 60))
+    bird_button_img.fill((50, 150, 200))  # Blue color
+    pygame.draw.rect(bird_button_img, white, (0, 0, 140, 60), 3)  # White border
+    bird_font = pygame.font.SysFont(None, 20)
+    bird_text = bird_font.render('CHANGE BIRD', True, white)
+    bird_text_rect = bird_text.get_rect(center=(70, 30))
+    bird_button_img.blit(bird_text, bird_text_rect)
+    
+    # Create "Change Theme" button (replaces "HARD")
+    theme_button_img = pygame.Surface((140, 60))
+    theme_button_img.fill((150, 100, 200))  # Purple color
+    pygame.draw.rect(theme_button_img, white, (0, 0, 140, 60), 3)  # White border
+    theme_font = pygame.font.SysFont(None, 20)
+    theme_text = theme_font.render('CHANGE THEME', True, white)
+    theme_text_rect = theme_text.get_rect(center=(70, 30))
+    theme_button_img.blit(theme_text, theme_text_rect)
+    
+    # Position the buttons
+    frame_center_x = frame_rect.x + frame_rect.width // 2
+    
+    # Start button at lower center
+    start_button = Button(0, 0, smaller_start_img)
+    start_button.set_center(frame_center_x, 550)  # Move lower
+    
+    # Left button position (upper left of start button)
+    bird_button = Button(0, 0, bird_button_img)
+    bird_button.set_center(frame_center_x - 100, 450)
+    
+    # Right button position (upper right of start button)
+    theme_button = Button(0, 0, theme_button_img)
+    theme_button.set_center(frame_center_x + 100, 450)
+    
+    # Draw all buttons and check for clicks
+    bird_clicked = bird_button.draw()
+    theme_clicked = theme_button.draw()
+    start_clicked = start_button.draw()
+    
+    # Handle button clicks
+    if bird_clicked:
+        change_bird_type()
+    
+    if theme_clicked:
+        change_theme()
+    
+    if start_clicked:
         return True
     
     return False
+
+def draw_difficulty_indicator():
+    # Show current difficulty on screen during gameplay
+    if score > 0:
+        difficulty_level = score // difficulty_increase_interval + 1
+        max_level = (max_scroll_speed - 4) / 0.5 + 1
+        
+        # Draw difficulty indicator
+        draw_text(f"Level: {difficulty_level}", small_font, white, 20, 60)
+        
+        # Optionally show current pipe gap and speed
+        draw_text(f"Gap: {pipe_gap}", small_font, white, 20, 100)
+        draw_text(f"Speed: {scroll_speed:.1f}", small_font, white, 20, 140)
 
 pipe_group = pygame.sprite.Group()
 bird_group = pygame.sprite.Group()
@@ -335,9 +431,14 @@ while run:
             if pass_pipe and bird_group.sprites()[0].rect.left > pipe_group.sprites()[0].rect.right:
                 score += 1
                 pass_pipe = False
+                # Update difficulty when score increases
+                update_difficulty()
 
         # Draw score
         draw_text(str(score), font, white, int(screen_width / 2), 20)
+        
+        # Draw difficulty indicator
+        draw_difficulty_indicator()
 
         # Check for collision with pipes or ceiling
         if pygame.sprite.groupcollide(bird_group, pipe_group, False, False) or flappy.rect.top < 0:
