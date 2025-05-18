@@ -2,6 +2,7 @@ import pygame
 from pygame.locals import *
 import random
 import os
+import json
 
 pygame.init()
 
@@ -14,12 +15,27 @@ pygame.display.set_caption('Flappy Bird')
 font = pygame.font.Font("Jersey10-Regular.ttf", 60)
 small_font = pygame.font.Font("Jersey10-Regular.ttf", 40)
 smaller_font = pygame.font.Font("Jersey10-Regular.ttf", 30)
+tiny_font = pygame.font.Font("Jersey10-Regular.ttf", 25)
 white = (255, 255, 255)
 orange = (255, 102, 0)
+dark_green = (34, 139, 34)
+light_gray = (211, 211, 211)
+black = (0, 0, 0)
 themes = [
-    {"name": "Default", "bg": "img/bg.png", "ground": "img/ground.png", "pipe": "img/pipe.png", "sky": (135, 206, 235)},
-    {"name": "Dark", "bg": "img/darkmode.png", "ground": "img/ground.png", "pipe": "img/pipe.png", "sky": (25, 25, 112)}
+    {"name": "Default", "bg": "img/bg.svg", "ground": "img/ground.svg", "pipe": "img/pipe.svg", "sky": (135, 206, 235)},
+    {"name": "Dark", "bg": "img/nightmode.svg", "ground": "img/ground.svg", "pipe": "img/pipe.svg", "sky": (25, 25, 112)}
 ]
+
+
+# User Management Variables
+current_user = ""
+users_data = {}
+showing_user_page = False
+create_user_active = False
+new_username = ""
+keyboard_active = False
+selected_user_index = 0
+
 current_theme = 0
 bird_types = ["bird", "rocket"]
 current_bird_type = 0
@@ -34,12 +50,46 @@ last_pipe = pygame.time.get_ticks() - pipe_frequency
 score = 0
 pass_pipe = False
 game_started = False  # New variable to track if game has started
+welcome_screen = True  # New variable for welcome screen
 
 showing_bird_selection = False
 showing_theme_selection = False
 difficulty_increase_interval = 5  # Increase difficulty every 5 points
 max_scroll_speed = 7
 min_pipe_gap = 120
+
+high_score_updated = False
+
+current_bird_frame = 0  # Track the current bird animation frame
+bird_frames = ["img/bird_up.svg", "img/bird_mid.svg", "img/bird_down.svg"]  # Bird animation frames
+selected_bird_index = 0  # To allow bird selection/changing
+show_game_manual = True  # Show game manual at start
+game_over_screen = False  # Track if game over screen is showing
+
+# Load User Data
+def load_users_data():
+    if os.path.exists('users_data.json'):
+        with open('users_data.json', 'r') as file:
+            try:
+                return json.load(file)
+            except:
+                return {}
+    return {}
+
+# Save User Data
+def save_users_data():
+    with open('users_data.json', 'w') as file:
+        json.dump(users_data, file)
+
+# Update User's High Score
+def update_high_score(score):
+    global users_data, current_user
+    if current_user and current_user in users_data:
+        if score > users_data[current_user]["high_score"]:
+            users_data[current_user]["high_score"] = score
+            save_users_data()
+            return True
+    return False
 
 def load_high_score():
     if os.path.exists('high_score.txt'):
@@ -60,19 +110,19 @@ def load_theme_images():
     global bg, ground_img, pipe_img
 
     try:
-        bg = pygame.image.load(themes[current_theme]["bg"])
+        bg = pygame.image.load(themes[current_theme]["bg"]).convert_alpha()
     except (pygame.error, FileNotFoundError):
         bg = pygame.Surface((screen_width, screen_height))
         bg.fill(themes[current_theme]["sky"])  # Use the sky color from the theme
     
 
     try:
-        ground_img = pygame.image.load(themes[current_theme]["ground"])
+        ground_img = pygame.image.load(themes[current_theme]["ground"]).convert_alpha()
     except (pygame.error, FileNotFoundError):
         ground_img = pygame.Surface((screen_width, 168))
         ground_img.fill((139, 69, 19))  # Brown
     try:
-        pipe_img = pygame.image.load(themes[current_theme]["pipe"])
+        pipe_img = pygame.image.load(themes[current_theme]["pipe"]).convert_alpha()
     except (pygame.error, FileNotFoundError):
         pipe_img = pygame.Surface((80, 500))
         pipe_img.fill((0, 128, 0))  # Green
@@ -81,7 +131,7 @@ def load_theme_images():
 bg, ground_img, pipe_img = load_theme_images()
 
 try:
-    button_img = pygame.image.load('img/restart.png')
+    button_img = pygame.image.load('img/restart.svg').convert_alpha()
 except pygame.error:
     button_img = pygame.Surface((100, 50))
     button_img.fill((230, 97, 29))  # Orange
@@ -90,7 +140,7 @@ except pygame.error:
     restart_text = font_btn.render('RESTART', True, white)
     button_img.blit(restart_text, ((100 - restart_text.get_width())//2, (50 - restart_text.get_height())//2))
 try:
-    mainmenu_img = pygame.image.load('img/mainmenu.png')
+    mainmenu_img = pygame.image.load('img/mainmenu.svg').convert_alpha()
 except pygame.error:
     mainmenu_img = pygame.Surface((120, 50))  # Slightly wider than restart button
     mainmenu_img.fill((0, 102, 204))  # Blue color to differentiate from restart
@@ -109,7 +159,7 @@ text_rect = back_text.get_rect(center=(40, 20))
 back_img.blit(back_text, text_rect)
 
 try:
-    start_img = pygame.image.load('img/start.png')
+    start_img = pygame.image.load('img/start.svg').convert_alpha()
     start_img = pygame.transform.scale(start_img, (int(start_img.get_width() * 0.7), int(start_img.get_height() * 0.5)))
 except pygame.error:
     start_img = pygame.Surface((100, 50))
@@ -120,7 +170,7 @@ except pygame.error:
     start_img.blit(start_text, ((100 - start_text.get_width())//2, (50 - start_text.get_height())//2))
 
 try:
-    trophy_img = pygame.image.load('img/trophy.png')
+    trophy_img = pygame.image.load('img/trophy.svg').convert_alpha()
     text_height = 43
 
     trophy_width = trophy_img.get_width()
@@ -140,8 +190,14 @@ def draw_text(text, font, text_col, x, y):
     img = font.render(text, True, text_col)
     screen.blit(img, (x, y))
 
+def draw_centered_text(text, font, text_col, y):
+    img = font.render(text, True, text_col)
+    width = img.get_width()
+    x = (screen_width - width) // 2
+    screen.blit(img, (x, y))
+
 def reset_game():
-    global score, flying, game_over, scroll_speed, pipe_gap
+    global score, flying, game_over, scroll_speed, pipe_gap, high_score_updated
     pipe_group.empty()
     flappy.rect.x = 100
     flappy.rect.y = int(screen_height / 2)
@@ -150,6 +206,7 @@ def reset_game():
     score = 0
     scroll_speed = 4
     pipe_gap = 180
+    high_score_updated = False  # Reset the flag
     return score
 
 def go_to_main_menu():
@@ -183,6 +240,12 @@ def change_theme(new_theme=None):
         bg, ground_img, pipe_img = load_theme_images()
     for pipe in pipe_group:
         pipe.update_image(pipe_img)
+
+def colorize_surface(surface, color):
+    """Apply a color tint to a surface"""
+    colored_surface = surface.copy()
+    colored_surface.fill(color, special_flags=pygame.BLEND_RGBA_MULT)
+    return colored_surface
 
 class Pipe(pygame.sprite.Sprite):
     def __init__(self, x, y, position):
@@ -223,20 +286,21 @@ class Bird(pygame.sprite.Sprite):
         self.images = []
         
         if bird_type == "bird":
-            for num in range(1, 4):
-                try:
-                    img = pygame.image.load(f"img/bird{num}.png")
+            # Load the bird SVG images
+            try:
+                for num in range(1, 4):
+                    img = pygame.image.load(f"img/bird{num}.svg").convert_alpha()
                     self.images.append(img)
-                except pygame.error:
-                    bird_img = pygame.Surface((34, 24))
-                    bird_img.fill((255, 255, 0))  # Yellow
-                    pygame.draw.ellipse(bird_img, (255, 255, 0), (0, 0, 34, 24))
-                    pygame.draw.circle(bird_img, (0, 0, 0), (28, 10), 3)  # Eye
-                    self.images.append(bird_img)
+            except pygame.error:
+                bird_img = pygame.Surface((34, 24))
+                bird_img.fill((255, 255, 0))  # Yellow
+                pygame.draw.ellipse(bird_img, (255, 255, 0), (0, 0, 34, 24))
+                pygame.draw.circle(bird_img, (0, 0, 0), (28, 10), 3)  # Eye
+                self.images.append(bird_img)
             
         elif bird_type == "rocket":
             try:
-                rocket_img = pygame.image.load("img/rocket.png")
+                rocket_img = pygame.image.load("img/rocket.svg").convert_alpha()
                 for i in range(3):
                     rotated = pygame.transform.rotate(rocket_img, i * 5 - 5)
                     self.images.append(rotated)
@@ -251,6 +315,8 @@ class Bird(pygame.sprite.Sprite):
                     pygame.draw.polygon(rocket_img, (255, 165, 0), 
                                        [(0, 8), (0, 12), (-fire_length, 10)])  # Fire
                     self.images.append(rocket_img)
+        
+        # Fallback if no images were loaded
         if len(self.images) == 0:
             for i in range(3):
                 fallback = pygame.Surface((34, 24))
@@ -301,13 +367,242 @@ class Button():
                 action = True
         screen.blit(self.image, self.rect.topleft)
         return action
-def draw_game_over():
-    global high_score, score, game_over
-    
-    if score > high_score:
-        high_score = score
-        save_high_score(high_score)  # Save high score when it's beaten
 
+def draw_welcome_screen():
+    # Create a pulsating effect for the message
+    pulse_value = abs(pygame.time.get_ticks() % 1000 - 500) / 500  # Value between 0 and 1
+    pulse_size = 25 + int(pulse_value * 5)  # Font size between 25 and 30
+    pulse_font = pygame.font.Font("Jersey10-Regular.ttf", pulse_size)
+    
+    # Background with parallax effect
+    screen.blit(bg, (0, 0))
+    screen.blit(ground_img, (ground_scroll, 768))
+    
+    # Create a semi-transparent overlay for better text readability
+    overlay = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 100))  # Semi-transparent black
+    screen.blit(overlay, (0, 0))
+    
+    # Draw the game title
+    draw_centered_text("SNAPPY BIRD", font, white, 200)
+    
+    # Draw the bird animation
+    bird_img = flappy.images[flappy.index]
+    bird_x = (screen_width - bird_img.get_width()) // 2
+    bird_y = 350
+    screen.blit(bird_img, (bird_x, bird_y))
+    
+    # Animate the bird
+    flappy.counter += 1
+    if flappy.counter > 5:
+        flappy.counter = 0
+        flappy.index = (flappy.index + 1) % len(flappy.images)
+    
+    # Draw pulsating "Click to continue" message at the bottom
+    draw_centered_text("Click to continue", pulse_font, white, 700)
+    
+    # Draw the version info
+    version_text = "v1.0"
+    draw_text(version_text, tiny_font, white, 10, screen_height - 40)
+
+
+# User Page Drawing Function
+def draw_user_page():
+    global showing_user_page, create_user_active, new_username, keyboard_active, selected_user_index
+    
+    # Background
+    screen.blit(bg, (0, 0))
+    screen.blit(ground_img, (ground_scroll, 768))
+    
+    # Dark overlay for better visibility
+    overlay = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 150))  # Semi-transparent black
+    screen.blit(overlay, (0, 0))
+    
+    # User selection frame
+    frame_width = 500
+    frame_height = 400
+    frame_x = (screen_width - frame_width) // 2
+    frame_y = (screen_height - frame_height) // 2
+    frame_rect = pygame.Rect(frame_x, frame_y, frame_width, frame_height)
+    pygame.draw.rect(screen, dark_green, frame_rect)
+    pygame.draw.rect(screen, white, frame_rect, 5)
+    
+    draw_centered_text("WELCOME TO SNAPPY BIRD !", smaller_font, white, frame_y + 40)
+    
+    # High score table
+    table_rect = pygame.Rect(frame_x + 50, frame_y + 90, frame_width - 100, 200)
+    pygame.draw.rect(screen, (20, 70, 70), table_rect)
+    pygame.draw.rect(screen, white, table_rect, 2)
+    
+    # Header
+    draw_text("Highest Score", small_font, white, table_rect.right - 200, table_rect.y - 40)
+    
+    # List users and their high scores
+    user_list = list(users_data.items())
+    start_idx = max(0, min(selected_user_index, len(user_list) - 3))
+    
+    for i in range(start_idx, min(start_idx + 3, len(user_list))):
+        username, data = user_list[i]
+        row_color = light_gray if i == selected_user_index else white
+        row_rect = pygame.Rect(table_rect.x + 5, table_rect.y + 5 + ((i - start_idx) * 60), table_rect.width - 10, 50)
+        pygame.draw.rect(screen, row_color, row_rect)
+        
+        # Username
+        draw_text(username, smaller_font, black, row_rect.x + 10, row_rect.y + 10)
+        
+        # Score
+        score_text = str(data["high_score"])
+        draw_text(score_text, smaller_font, black, row_rect.right - 50, row_rect.y + 10)
+    
+    # Create User Button
+    create_button_rect = pygame.Rect(frame_x + frame_width - 180, frame_y + frame_height - 60, 160, 40)
+    pygame.draw.rect(screen, orange, create_button_rect)
+    pygame.draw.rect(screen, white, create_button_rect, 2)
+    draw_text("CREATE A USER", tiny_font, white, create_button_rect.x + 10, create_button_rect.y + 10)
+    
+    # Draw Create User Interface if active
+    if create_user_active:
+        create_user_interface()
+    
+    # Return True if user clicked on a name to select it
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            exit()
+            
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            mouse_pos = pygame.mouse.get_pos()
+            
+            # Check if Create User button was clicked
+            if create_button_rect.collidepoint(mouse_pos):
+                create_user_active = True
+                keyboard_active = True
+                new_username = ""
+                return False
+            
+            # Check if a user was selected from the list
+            for i in range(start_idx, min(start_idx + 3, len(user_list))):
+                username, _ = user_list[i]
+                row_rect = pygame.Rect(table_rect.x + 5, table_rect.y + 5 + ((i - start_idx) * 60), table_rect.width - 10, 50)
+                if row_rect.collidepoint(mouse_pos):
+                    global current_user
+                    current_user = username
+                    selected_user_index = i
+                    return True
+        
+        # Keyboard navigation
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_UP and not create_user_active:
+                selected_user_index = max(0, selected_user_index - 1)
+            elif event.key == pygame.K_DOWN and not create_user_active:
+                selected_user_index = min(len(user_list) - 1, selected_user_index + 1)
+            elif event.key == pygame.K_RETURN and not create_user_active and user_list:
+                current_user = user_list[selected_user_index][0]
+                return True
+    
+    # User hasn't made a selection yet
+    return False
+
+def create_user_interface():
+    global new_username, keyboard_active, create_user_active
+    
+    # Draw a modal dialog
+    modal_width = 400
+    modal_height = 200
+    modal_x = (screen_width - modal_width) // 2
+    modal_y = (screen_height - modal_height) // 2
+    
+    # Semi-transparent background
+    overlay = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 180))  # Darker overlay for modal
+    screen.blit(overlay, (0, 0))
+    
+    # Modal window
+    modal_rect = pygame.Rect(modal_x, modal_y, modal_width, modal_height)
+    pygame.draw.rect(screen, dark_green, modal_rect)
+    pygame.draw.rect(screen, white, modal_rect, 3)
+    
+    # Title
+    draw_centered_text("Enter Username", small_font, white, modal_y + 30)
+    
+    # Text input field
+    input_rect = pygame.Rect(modal_x + 50, modal_y + 80, modal_width - 100, 40)
+    pygame.draw.rect(screen, white, input_rect)
+    pygame.draw.rect(screen, black, input_rect, 2)
+    
+    # Display the entered text
+    display_text = new_username
+    if len(display_text) > 15:  # Limit display length
+        display_text = display_text[:15]
+    
+    text_surface = smaller_font.render(display_text, True, black)
+    screen.blit(text_surface, (input_rect.x + 10, input_rect.y + 5))
+    
+    # Create button
+    create_btn_rect = pygame.Rect(modal_x + modal_width - 150, modal_y + modal_height - 50, 100, 30)
+    pygame.draw.rect(screen, orange, create_btn_rect)
+    pygame.draw.rect(screen, white, create_btn_rect, 2)
+    draw_text("Create", tiny_font, white, create_btn_rect.x + 20, create_btn_rect.y + 5)
+    
+    # Cancel button
+    cancel_btn_rect = pygame.Rect(modal_x + 50, modal_y + modal_height - 50, 100, 30)
+    pygame.draw.rect(screen, (100, 100, 100), cancel_btn_rect)
+    pygame.draw.rect(screen, white, cancel_btn_rect, 2)
+    draw_text("Cancel", tiny_font, white, cancel_btn_rect.x + 20, cancel_btn_rect.y + 5)
+    
+    # If keyboard is active, listen for key events
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            exit()
+            
+        elif event.type == pygame.KEYDOWN and keyboard_active:
+            if event.key == pygame.K_BACKSPACE:
+                new_username = new_username[:-1]
+            elif event.key == pygame.K_RETURN:
+                if len(new_username) > 0:
+                    # Create user and exit the modal
+                    users_data[new_username] = {"high_score": 0}
+                    save_users_data()
+                    global current_user
+                    current_user = new_username
+                    create_user_active = False
+                    keyboard_active = False
+            elif event.unicode.isprintable() and len(new_username) < 20:  # Limit username length
+                new_username += event.unicode
+        
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            mouse_pos = pygame.mouse.get_pos()
+            
+            # Create button clicked
+            if create_btn_rect.collidepoint(mouse_pos) and len(new_username) > 0:
+                users_data[new_username] = {"high_score": 0}
+                save_users_data()
+                current_user = new_username
+                create_user_active = False
+                keyboard_active = False
+                pygame.event.clear()  # Clear any pending events
+                return True
+            
+            # Cancel button clicked
+            elif cancel_btn_rect.collidepoint(mouse_pos):
+                create_user_active = False
+                keyboard_active = False
+                pygame.event.clear()  # Clear any pending events
+    
+    return False
+
+# Modify draw_game_over function to handle user high scores
+def draw_game_over():
+    global high_score, score, game_over, users_data, current_user
+    
+    # Update the user's high score
+    is_new_high_score = update_high_score(score)
+    
+    # Get the high score to display (user's high score or global high score)
+    display_high_score = users_data[current_user]["high_score"] if current_user in users_data else high_score
+    
     frame_color = orange if current_theme == 0 else (50, 50, 100)
     
     frame_rect = pygame.Rect(232, 268, 400, 300)
@@ -315,7 +610,12 @@ def draw_game_over():
     pygame.draw.rect(screen, white, frame_rect, 10)
 
     screen.blit(trophy_img, (270, 300))  
-    draw_text(f": {high_score}", font, white, 320, 290)
+    draw_text(f": {display_high_score}", font, white, 320, 290)
+    
+    # Show username above high score
+    if current_user:
+        draw_text(f"Player: {current_user}", smaller_font, white, 260, 250)
+    
     draw_text(f"SCORE: {score}", font, white, 260, 350)
     bird_img = flappy.images[0]
     bird_box = pygame.Rect(520, 290, bird_img.get_width() + 10, bird_img.get_height() + 10)
@@ -324,7 +624,6 @@ def draw_game_over():
     screen.blit(bird_img, (520, 290))
 
     restart_button = Button(320, 450, button_img)
-
     mainmenu_button = Button(420, 450, mainmenu_img)
 
     if restart_button.draw():
@@ -333,6 +632,9 @@ def draw_game_over():
     
     if mainmenu_button.draw():
         go_to_main_menu()
+
+# Update the main game loop to include the user page
+users_data = load_users_data()
 
 def draw_main_menu():
     screen.blit(bg, (0, 0))
@@ -388,6 +690,7 @@ def draw_main_menu():
         return True
     
     return False
+
 def draw_bird_selection():
     global showing_bird_selection
     screen.blit(bg, (0, 0))
@@ -433,18 +736,19 @@ def draw_bird_selection():
             showing_bird_selection = False
     if back_button.draw():
         showing_bird_selection = False
+
 def draw_theme_selection():
     global showing_theme_selection
     screen.blit(bg, (0, 0))
     screen.blit(ground_img, (ground_scroll, 768))
     frame_color = orange if current_theme == 0 else (50, 50, 100)
+    original_theme = current_theme
     frame_rect = pygame.Rect(132, 200, 600, 450)
     pygame.draw.rect(screen, frame_color, frame_rect)
     pygame.draw.rect(screen, white, frame_rect, 10)
     draw_text("SELECT THEME", font, white, 250, 220)
     back_button = Button(20, 20, back_img)
     theme_buttons = []
-    original_theme = current_theme
     for i, theme in enumerate(themes):
         button_width = 250
         button_height = 150
@@ -457,7 +761,7 @@ def draw_theme_selection():
         text_rect = btn_text.get_rect(center=(button_width//2, 30))
         button_img.blit(btn_text, text_rect)
         try:
-            preview_img = pygame.image.load(theme["bg"])
+            preview_img = pygame.image.load(theme["bg"]).convert_alpha()
             preview_img = pygame.transform.scale(preview_img, (button_width - 20, 80))
         except (pygame.error, FileNotFoundError):
             preview_img = pygame.Surface((button_width - 20, 80))
@@ -470,6 +774,7 @@ def draw_theme_selection():
         y_center = frame_rect.y + 300 + (row * 160)
         button.set_center(x_center, y_center)
         theme_buttons.append(button)
+    # --- FIX: Draw theme buttons and handle clicks ---
     for i, button in enumerate(theme_buttons):
         if button.draw():
             change_theme(i)
@@ -478,6 +783,7 @@ def draw_theme_selection():
         if current_theme != original_theme:
             change_theme(original_theme)
         showing_theme_selection = False
+
 def draw_gameplay_ui():
     draw_text(str(score), font, white, int(screen_width / 2), 20)
 
@@ -485,42 +791,128 @@ pipe_group = pygame.sprite.Group()
 bird_group = pygame.sprite.Group()
 flappy = Bird(100, int(screen_height / 2))
 bird_group.add(flappy)
+
 run = True
+
+def load_svg(filename):
+    return pygame.image.load(filename).convert_alpha()
+
+# Load the SVG assets
+game_manual_img = load_svg("img/game.svg")
+game_over_img = load_svg("img/gameover.svg")
+bird_up_img = load_svg("img/bird_up.svg")
+bird_mid_img = load_svg("img/bird_mid.svg")
+bird_down_img = load_svg("img/bird_down.svg")
+
+def animate_bird():
+    global current_bird_frame
+    # Change bird frame every few frames for animation
+    if pygame.time.get_ticks() % 10 == 0:
+        current_bird_frame = (current_bird_frame + 1) % 3
+    return load_svg(bird_frames[current_bird_frame])
+
+def change_bird():
+    global selected_bird_index
+    selected_bird_index = (selected_bird_index + 1) % 3  # Cycle through birds
+    # If you have different bird sets, update bird_frames here
+
+# Main game loop with fixes to prevent game freeze when losing
 while run:
     clock.tick(fps)
-    screen.blit(bg, (0, 0))
-    if showing_bird_selection:
-        draw_bird_selection()
-    elif showing_theme_selection:
-        draw_theme_selection()
-    elif game_started:
-        pipe_group.draw(screen)
-        bird_group.draw(screen)
-        bird_group.update()
-        screen.blit(ground_img, (ground_scroll, 768))
-        if game_over:
-            draw_game_over()
-        else:
-            if pygame.sprite.groupcollide(bird_group, pipe_group, False, False) or flappy.rect.top < 0:
-                game_over = True
-            if flappy.rect.bottom >= 768:
-                game_over = True
-                flying = False
-            
-            update_difficulty()
-            draw_gameplay_ui()
-            if len(pipe_group) > 0:
-                if (bird_group.sprites()[0].rect.left > pipe_group.sprites()[0].rect.left and
-                    bird_group.sprites()[0].rect.right < pipe_group.sprites()[0].rect.right and 
-                    not pass_pipe):
-                    pass_pipe = True
+    events = pygame.event.get()
+
+    # --- Show game manual at start ---
+    if show_game_manual:
+        screen.blit(game_manual_img, (screen_width//2 - game_manual_img.get_width()//2, 
+                                      screen_height//2 - game_manual_img.get_height()//2))
+        for event in events:
+            if event.type == pygame.QUIT:
+                run = False
+            if event.type == pygame.KEYDOWN:
+                show_game_manual = False
+        pygame.display.update()
+        continue
+
+    # --- Show game over screen ---
+    if game_over_screen:
+        screen.blit(game_over_img, (screen_width//2 - game_over_img.get_width()//2, 
+                                    screen_height//2 - game_over_img.get_height()//2))
+        for event in events:
+            if event.type == pygame.QUIT:
+                run = False
+            if event.type == pygame.KEYDOWN:
+                reset_game()
+                game_over_screen = False
+        pygame.display.update()
+        continue
+
+    # Process ALL events at the beginning of each frame to prevent lag
+    events = pygame.event.get()  # Store events to use throughout the frame
+    for event in events:
+        if event.type == pygame.QUIT:
+            run = False
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if welcome_screen:
+                welcome_screen = False
+                showing_user_page = True
+            elif not flying and not game_over and game_started:
+                flying = True
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_c:  # 'C' key to change bird
+                change_bird()
+    # ...existing event handling...
+      
+    # Handle the welcome screen
+    if welcome_screen:
+        draw_welcome_screen()
+        
+    # Handle the user page after welcome screen
+    elif showing_user_page:
+        if draw_user_page():  # User has been selected
+            showing_user_page = False
+            game_started = False  # Go to main menu after user selection
+
+    elif game_over:
+        if not high_score_updated:
+            update_high_score(score)
+            high_score_updated = True
+        draw_game_over()
+    else:  # Normal game flow after welcome screen
+        screen.blit(bg, (0, 0))
+        if showing_bird_selection:
+            draw_bird_selection()
+        elif showing_theme_selection:
+            draw_theme_selection()
+        elif game_started:
+            pipe_group.draw(screen)
+            current_bird_img = animate_bird()
+            screen.blit(current_bird_img, (flappy.rect.x, flappy.rect.y))
+            bird_group.update()
+            screen.blit(ground_img, (ground_scroll, 768))
+            if game_over:
+                draw_game_over()
+            else:
+                if pygame.sprite.groupcollide(bird_group, pipe_group, False, False) or flappy.rect.top < 0:
+                    game_over = True
+                    game_over_screen = True
+                if flappy.rect.bottom >= 768:
+                    game_over = True
+                    flying = False
+                    game_over_screen = True
                 
-                if pass_pipe:
-                    if bird_group.sprites()[0].rect.left > pipe_group.sprites()[0].rect.right:
-                        score += 1
-                        pass_pipe = False
-            pipe_group.update()
-            if not game_over and flying:
+                update_difficulty()
+                draw_gameplay_ui()
+                if len(pipe_group) > 0:
+                    if (bird_group.sprites()[0].rect.left > pipe_group.sprites()[0].rect.left and
+                        bird_group.sprites()[0].rect.right < pipe_group.sprites()[0].rect.right and
+                        not pass_pipe):
+                        pass_pipe = True
+                    
+                    if pass_pipe:
+                        if bird_group.sprites()[0].rect.left > pipe_group.sprites()[0].rect.right:
+                            score += 1
+                            pass_pipe = False
+                
                 time_now = pygame.time.get_ticks()
                 if time_now - last_pipe > pipe_frequency:
                     pipe_height = random.randint(-100, 100)
@@ -529,30 +921,15 @@ while run:
                     pipe_group.add(btm_pipe)
                     pipe_group.add(top_pipe)
                     last_pipe = time_now
-            if not game_over:
+                
                 ground_scroll -= scroll_speed
                 if abs(ground_scroll) > 35:
                     ground_scroll = 0
-    else:
-        if draw_main_menu():
-            game_started = True
-            flying = True
-            reset_game()
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            run = False
-        if event.type == pygame.MOUSEBUTTONDOWN and not flying and not game_over and game_started:
-            flying = True
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                if showing_bird_selection or showing_theme_selection:
-                    showing_bird_selection = False
-                    showing_theme_selection = False
-                elif game_started:
-                    go_to_main_menu()
-                else:
-                    run = False
-            
+        else:
+            if draw_main_menu():
+                flying = True
     pygame.display.update()
+    pygame.display.update()
+
 
 pygame.quit()
